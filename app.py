@@ -34,7 +34,7 @@ st.markdown("""
     font-size:10px; color:#666; text-transform:uppercase;
     letter-spacing:1.5px; margin-bottom:8px;
 }
-.sb-player { font-size:15px; font-weight:700; text-align:center; color:#ffffff; text-shadow:0 0 4px rgba(255,255,255,0.12); }
+.sb-player { font-size:16px; font-weight:800; text-align:center; color:#ffc107; text-shadow:0 0 8px rgba(255,193,7,0.25); letter-spacing:0.5px; }
 .sb-player.win { color:#4ade80; }
 .sb-score {
     font-family:'Courier New',monospace; font-size:44px; font-weight:800;
@@ -284,10 +284,10 @@ def resolve_name(raw: str) -> str:
 
 def init_ko_scores(knockout_matches: List[dict]) -> None:
     fp = f"{len(knockout_matches)}_{knockout_matches[0]['阶段']}_{knockout_matches[0]['场次']}" if knockout_matches else "empty"
-    if st.session_state.get("_needs_ko_init"):
-        fp += "_force"
-        st.session_state._needs_ko_init = False
-    need = "ko_scores" not in st.session_state or st.session_state.get("_ko_hash") != fp
+    force = st.session_state.get("_needs_ko_init", False)
+    need = ("ko_scores" not in st.session_state or
+            st.session_state.get("_ko_hash") != fp or
+            force)
     if need:
         st.session_state.ko_scores = {}
         st.session_state.winner_map = {}
@@ -496,6 +496,8 @@ if st.session_state.get("_generated") and st.session_state._loaded_names:
     # Knockout
     knockout_matches = create_knockout_matches(groups, effective_seed)
     init_ko_scores(knockout_matches)
+
+    st.session_state._needs_ko_init = False  # reset after both inits consumed the flag
 
     # Sync group winners → knockout
     sync_group_winners(groups)
