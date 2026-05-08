@@ -57,6 +57,19 @@ st.markdown("""
     .main-title, .sub-title, .stButton, .stDownloadButton, .stRadio, .stNumberInput,
     .stFileUploader, .stTextInput, hr, #生成结果 { display:none !important; }
 }
+
+/* Scoreboard */
+.sc-title { font-size:12px; color:#999; letter-spacing:1px; margin-bottom:6px; }
+.sc-name { font-size:16px; font-weight:700; text-align:center; }
+.sc-name.win { color:#4CAF50 !important; }
+.sc-name.lose { color:#666 !important; }
+.sc-score { font-size:42px; font-weight:800; text-align:center; line-height:1.2; font-variant-numeric:tabular-nums; }
+.sc-vs { text-align:center; color:#555; font-weight:600; font-size:14px; }
+.sc-winner-badge {
+    text-align:center; padding:6px; border-radius:8px; font-weight:700; font-size:14px;
+}
+.status-live { color:#f39c12; }
+.status-done { color:#4CAF50; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -298,6 +311,35 @@ def create_knockout_matches(groups: List[List[str]], seed: int) -> List[dict]:
     return all_knockout_matches
 
 
+def resolve_name(raw: str) -> str:
+    """Resolve a template name to actual player via winner_map."""
+    wm = st.session_state.get("winner_map", {})
+    return wm.get(raw, raw)
+
+
+def init_ko_scores(knockout_matches: List[dict]) -> None:
+    """Initialize or reinitialize knockout score state."""
+    # Build a fingerprint: structure + effective_seed so reshuffles reset scores
+    fp = f"{len(knockout_matches)}_{knockout_matches[0]['阶段']}_{knockout_matches[0]['场次']}" if knockout_matches else "empty"
+    if st.session_state.get("_needs_ko_init"):
+        fp += "_force"  # force reinit
+        st.session_state._needs_ko_init = False
+
+    need_init = ("ko_scores" not in st.session_state or
+                 st.session_state.get("_ko_data_hash") != fp)
+
+    if need_init:
+        st.session_state.ko_scores = {}
+        st.session_state.winner_map = {}
+        for m in knockout_matches:
+            key = f"{m['阶段']}_{m['场次']}"
+            st.session_state.ko_scores[key] = {
+                "p1": 0, "p2": 0,
+                "done": False, "winner": None,
+            }
+        st.session_state._ko_data_hash = fp
+
+
 def render_bracket_html(knockout_matches: List[dict]) -> str:
     """Render a visual bracket tree with connector lines."""
     rounds: dict = {}
@@ -422,6 +464,7 @@ if generate:
             # For true random (seed=0), use a run-specific random key
             st.session_state._run_key = random.randint(0, 999999)
             st.session_state._generated = True
+            st.session_state._needs_ko_init = True
 
         except Exception as e:
             st.error(f"生成失败：{e}")
@@ -465,6 +508,7 @@ if st.session_state.get("_generated") and st.session_state._loaded_names:
 
     # Knockout matches
     knockout_matches = create_knockout_matches(groups, effective_seed)
+    init_ko_scores(knockout_matches)
 
     # ── Display ──
     st.subheader(f"共 {len(names)} 名选手，{len(groups)} 个小组")
@@ -515,15 +559,156 @@ if st.session_state.get("_generated") and st.session_state._loaded_names:
         height = min(400, 35 * len(group_match_rows) + 38) if group_match_rows else 200
         st.dataframe(group_match_rows, use_container_width=True, height=height)
 
-    # ── Knockout bracket ──
-    st.subheader("淘汰赛对阵图")
-    bracket_html = render_bracket_html(knockout_matches)
-    st.markdown(bracket_html, unsafe_allow_html=True)
+    # ── Interactive knockout scoreboard ──
+    st.subheader("淘汰赛计分板")
+    st.caption("点击「+」「−」记录比分，先到21分且领先2分者获胜自动晋级")
+
+    # Group matches by round
+    ko_rounds: dict = {}
+    for m in knockout_matches:
+        ko_rounds.setdefault(m["阶段"], []).append(m)
+
+    round_order = ["1/16决赛", "1/8决赛", "1/4决赛", "半决赛", "决赛"]
+    round_names = [r for r in round_order if r in ko_rounds]
+
+    for rname in round_names:
+        st.markdown(f"### 🏸 {rname}")
+        matches = ko_rounds[rname]
+
+        for m in matches:
+            key = f"{m['阶段']}_{m['场次']}"
+            score = st.session_state.ko_scores[key]
+
+            p1 = resolve_name(m["选手1"])
+            p2 = resolve_name(m["选手2"])
+
+            # Card
+            st.markdown(
+                f"<div style='background:linear-gradient(135deg,#1a1a2e,#16213e);"
+                f"border-radius:16px;padding:16px 20px 4px;margin-bottom:16px;"
+                f"border:1px solid #333366;'>",
+                unsafe_allow_html=True,
+            )
+
+            # Title row
+            st.markdown(
+                f"<div class='sc-title'>第{m['场次']}场　"
+                f"{'🏆 ' + score['winner'] if score['done'] else '⚡ 进行中'}</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Main row: two players side by side
+            c1, c2 = st.columns([1, 1])
+
+            # ── Player 1 ──
+            with c1:
+                done_p1 = score["done"] and score["winner"] == p1
+                st.markdown(
+                    f"<div class='sc-name' style='color:white'>{p1}</div>",
+                    unsafe_allow_html=True,
+                )
+                sub = st.columns([1, 2, 1])
+                with sub[0]:
+                    btn_m1 = st.button("−", key=f"m1_{key}")
+                with sub[1]:
+                    st.markdown(
+                        f"<div class='sc-score' "
+                        f"style='color:{'#4CAF50' if done_p1 else '#FFD700'}'"
+                        f">{score['p1']}</div>",
+                        unsafe_allow_html=True,
+                    )
+                with sub[2]:
+                    btn_p1 = st.button("+", key=f"p1_{key}")
+
+            # ── Player 2 ──
+            with c2:
+                done_p2 = score["done"] and score["winner"] == p2
+                st.markdown(
+                    f"<div class='sc-name' style='color:white'>{p2}</div>",
+                    unsafe_allow_html=True,
+                )
+                sub = st.columns([1, 2, 1])
+                with sub[0]:
+                    btn_m2 = st.button("−", key=f"m2_{key}")
+                with sub[1]:
+                    st.markdown(
+                        f"<div class='sc-score' "
+                        f"style='color:{'#4CAF50' if done_p2 else '#FFD700'}'"
+                        f">{score['p2']}</div>",
+                        unsafe_allow_html=True,
+                    )
+                with sub[2]:
+                    btn_p2 = st.button("+", key=f"p2_{key}")
+
+            # Process score changes
+            if btn_p1:
+                score["p1"] = min(99, score["p1"] + 1)
+            if btn_m1:
+                score["p1"] = max(0, score["p1"] - 1)
+            if btn_p2:
+                score["p2"] = min(99, score["p2"] + 1)
+            if btn_m2:
+                score["p2"] = max(0, score["p2"] - 1)
+
+            # Check win (first to 21, lead by 2)
+            if not score["done"]:
+                if score["p1"] >= 21 and score["p1"] - score["p2"] >= 2:
+                    score["done"] = True
+                    score["winner"] = p1
+                    st.session_state.winner_map[m["晋级"]] = p1
+                elif score["p2"] >= 21 and score["p2"] - score["p1"] >= 2:
+                    score["done"] = True
+                    score["winner"] = p2
+                    st.session_state.winner_map[m["晋级"]] = p2
+
+            # Status
+            if score["done"]:
+                st.markdown(
+                    f"<div class='sc-winner-badge' style='background:#1b5e20;color:#81C784;'>"
+                    f"🏆 {score['winner']} 获胜晋级</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                p1_lead = score["p1"] - score["p2"]
+                if p1_lead > 0:
+                    status_text = f"{p1} 领先 {p1_lead} 分"
+                elif p1_lead < 0:
+                    status_text = f"{p2} 领先 {-p1_lead} 分"
+                else:
+                    status_text = "平分"
+                st.markdown(
+                    f"<div class='sc-winner-badge' style='background:#1a3a5c;color:#90CAF9;'>"
+                    f"⚡ {status_text}</div>",
+                    unsafe_allow_html=True,
+                )
+
+            # Close card
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Bracket status overview ──
+    with st.expander("查看晋级路线图"):
+        bracket_html = render_bracket_html(knockout_matches)
+        for old, new in st.session_state.get("winner_map", {}).items():
+            bracket_html = bracket_html.replace(old, f"<strong>{new}</strong>")
+        st.markdown(bracket_html, unsafe_allow_html=True)
 
     # ── Knockout table ──
     with st.expander("查看淘汰赛表格"):
-        height = min(400, 35 * len(knockout_matches) + 38) if knockout_matches else 200
-        st.dataframe(knockout_matches, use_container_width=True, height=height)
+        table_rows = []
+        for m in knockout_matches:
+            row = dict(m)
+            row["选手1"] = resolve_name(m["选手1"])
+            row["选手2"] = resolve_name(m["选手2"])
+            row["晋级"] = resolve_name(m["晋级"])
+            # Add scores if available
+            key = f"{m['阶段']}_{m['场次']}"
+            if key in st.session_state.ko_scores:
+                s = st.session_state.ko_scores[key]
+                row["比分"] = f"{s['p1']}:{s['p2']}"
+                row["状态"] = ("✅ " + s["winner"]) if s["done"] else "⚡进行中"
+            table_rows.append(row)
+        height = min(400, 35 * len(table_rows) + 38) if table_rows else 200
+        st.dataframe(table_rows, use_container_width=True, height=height)
 
     # ── Export & reshuffle ──
     col1, col2 = st.columns([1, 1])
