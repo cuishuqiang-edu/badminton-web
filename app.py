@@ -422,6 +422,25 @@ def sync_group_winners(groups: List[List[str]]) -> None:
                 st.session_state.winner_map[key2] = standings[1]["name"]
 
 
+# ── Button callbacks (run BEFORE rendering, so scores display correctly) ──
+
+def _cb_plus_group(k: str, player: str) -> None:
+    s = st.session_state.group_scores[k]
+    s[player] = min(99, s[player] + 1)
+
+def _cb_minus_group(k: str, player: str) -> None:
+    s = st.session_state.group_scores[k]
+    s[player] = max(0, s[player] - 1)
+
+def _cb_plus_ko(k: str, player: str) -> None:
+    s = st.session_state.ko_scores[k]
+    s[player] = min(99, s[player] + 1)
+
+def _cb_minus_ko(k: str, player: str) -> None:
+    s = st.session_state.ko_scores[k]
+    s[player] = max(0, s[player] - 1)
+
+
 # ── Excel export ─────────────────────────────────────────────────────────
 
 def create_excel_file(groups: List[List[str]], group_match_rows: List[dict],
@@ -627,12 +646,12 @@ if st.session_state.get("_generated") and st.session_state._loaded_names:
                                     unsafe_allow_html=True)
                         sub = st.columns([1, 2, 1])
                         with sub[0]:
-                            bm1 = st.button("−", key=f"gm_{k}_1")
+                            bm1 = st.button("−", key=f"gm_{k}_1", on_click=_cb_minus_group, args=(k, "p1"))
                         with sub[1]:
                             st.markdown(f'<div class="sb-score {"win" if w1 else ""}">{s["p1"]}</div>',
                                         unsafe_allow_html=True)
                         with sub[2]:
-                            bp1 = st.button("+", key=f"gp_{k}_1")
+                            bp1 = st.button("+", key=f"gp_{k}_1", on_click=_cb_plus_group, args=(k, "p1"))
 
                     # Player 2
                     with c2:
@@ -641,20 +660,14 @@ if st.session_state.get("_generated") and st.session_state._loaded_names:
                                     unsafe_allow_html=True)
                         sub = st.columns([1, 2, 1])
                         with sub[0]:
-                            bm2 = st.button("−", key=f"gm_{k}_2")
+                            bm2 = st.button("−", key=f"gm_{k}_2", on_click=_cb_minus_group, args=(k, "p2"))
                         with sub[1]:
                             st.markdown(f'<div class="sb-score {"win" if w2 else ""}">{s["p2"]}</div>',
                                         unsafe_allow_html=True)
                         with sub[2]:
-                            bp2 = st.button("+", key=f"gp_{k}_2")
+                            bp2 = st.button("+", key=f"gp_{k}_2", on_click=_cb_plus_group, args=(k, "p2"))
 
-                    # Process clicks
-                    if bp1: s["p1"] = min(99, s["p1"] + 1)
-                    if bm1: s["p1"] = max(0, s["p1"] - 1)
-                    if bp2: s["p2"] = min(99, s["p2"] + 1)
-                    if bm2: s["p2"] = max(0, s["p2"] - 1)
-
-                    # Win check
+                    # Win check (scores already updated by on_click callback)
                     if not s["done"] and (s["p1"] >= 21 or s["p2"] >= 21):
                         if s["p1"] >= 21 and s["p1"] - s["p2"] >= 2:
                             s["done"] = True; s["winner"] = a
@@ -760,12 +773,12 @@ if st.session_state.get("_generated") and st.session_state._loaded_names:
                             unsafe_allow_html=True)
                 sub = st.columns([1, 2, 1])
                 with sub[0]:
-                    bm1 = st.button("−", key=f"km_{key}_1")
+                    bm1 = st.button("−", key=f"km_{key}_1", on_click=_cb_minus_ko, args=(key, "p1"))
                 with sub[1]:
                     st.markdown(f'<div class="sb-score {"win" if w1 else ""}">{score["p1"]}</div>',
                                 unsafe_allow_html=True)
                 with sub[2]:
-                    bp1 = st.button("+", key=f"kp_{key}_1")
+                    bp1 = st.button("+", key=f"kp_{key}_1", on_click=_cb_plus_ko, args=(key, "p1"))
 
             with c2:
                 w2 = score["done"] and score["winner"] == p2
@@ -773,20 +786,14 @@ if st.session_state.get("_generated") and st.session_state._loaded_names:
                             unsafe_allow_html=True)
                 sub = st.columns([1, 2, 1])
                 with sub[0]:
-                    bm2 = st.button("−", key=f"km_{key}_2")
+                    bm2 = st.button("−", key=f"km_{key}_2", on_click=_cb_minus_ko, args=(key, "p2"))
                 with sub[1]:
                     st.markdown(f'<div class="sb-score {"win" if w2 else ""}">{score["p2"]}</div>',
                                 unsafe_allow_html=True)
                 with sub[2]:
-                    bp2 = st.button("+", key=f"kp_{key}_2")
+                    bp2 = st.button("+", key=f"kp_{key}_2", on_click=_cb_plus_ko, args=(key, "p2"))
 
-            # Process clicks
-            if bp1: score["p1"] = min(99, score["p1"] + 1)
-            if bm1: score["p1"] = max(0, score["p1"] - 1)
-            if bp2: score["p2"] = min(99, score["p2"] + 1)
-            if bm2: score["p2"] = max(0, score["p2"] - 1)
-
-            # Win check
+            # Win check (scores already updated by on_click callback)
             if not score["done"]:
                 if score["p1"] >= 21 and score["p1"] - score["p2"] >= 2:
                     score["done"] = True; score["winner"] = p1
