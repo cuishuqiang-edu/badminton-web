@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple
 st.set_page_config(page_title="羽毛球对战表生成器", page_icon="🏸", layout="wide")
 
 
-# ── CSS ─────────────────────────────────────────────────────────────────
+# ── CSS + JS ──────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 .main-title {font-size:42px;font-weight:bold;color:#155E3B;}
@@ -71,6 +71,28 @@ st.markdown("""
     .stFileUploader,.stTextInput,hr,#生成结果 { display:none !important; }
 }
 </style>
+
+<script>
+// Instant scoreboard visual feedback — bypass server round-trip for display
+document.addEventListener('click', function(e) {
+  var card = e.target.closest('.sb-card');
+  if (!card) return;
+  var btn = e.target.closest('button');
+  if (!btn) return;
+  var text = (btn.textContent || '').trim();
+  if (text !== '+' && text !== '\\u2212') return;
+
+  var hb = btn.closest('.stHorizontalBlock, .row-widget');
+  if (!hb) return;
+  var scoreEl = hb.querySelector('.sb-score');
+  if (!scoreEl) return;
+
+  var isPlus = text === '+';
+  var val = parseInt(scoreEl.textContent, 10) || 0;
+  val = Math.max(0, Math.min(99, val + (isPlus ? 1 : -1)));
+  scoreEl.textContent = val;
+});
+</script>
 """, unsafe_allow_html=True)
 
 
