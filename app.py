@@ -97,8 +97,77 @@ def load_names(
 
 
 def create_group_matches(group: List[str]) -> List[Tuple[str, str]]:
-    """Round-robin within a group."""
+    """Round-robin within a group (all combinations)."""
     return [(group[i], group[j]) for i in range(len(group)) for j in range(i + 1, len(group))]
+
+
+def create_round_robin_schedule(players: List[str]) -> List[List[Tuple[str, str]]]:
+    """Fair round-robin schedule using the circle method.
+
+    Each player plays at most once per round, ensuring rest between matches.
+    Returns list of rounds, each round is a list of (p1, p2) matches.
+    """
+    n = len(players)
+    if n < 2:
+        return []
+
+    working = list(players)
+    if n % 2 == 1:
+        working.append(None)  # None = bye/rest round for the paired player
+        n += 1
+
+    fixed = working[0]
+    rotating = working[1:]
+    n_rotating = n - 1
+
+    schedule = []
+    for rnd in range(n_rotating):
+        matches = []
+        # Fixed vs rotating[rnd]
+        p1, p2 = fixed, rotating[rnd % n_rotating]
+        if p1 is not None and p2 is not None:
+            matches.append((p1, p2))
+        # Remaining pairs
+        for i in range(1, n // 2):
+            a = rotating[(rnd + i) % n_rotating]
+            b = rotating[(rnd + n_rotating - i) % n_rotating]
+            if a is not None and b is not None:
+                matches.append((a, b))
+        schedule.append(matches)
+
+    return schedule
+
+
+def analyze_stamina(
+    groups: List[List[str]], knockout_matches: List[dict]
+) -> List[dict]:
+    """Assess physical demand: group matches + possible knockout rounds."""
+    ko_rounds = len({m["阶段"] for m in knockout_matches})
+    results = []
+    for idx, group in enumerate(groups):
+        gname = _get_group_name(idx)
+        per_player = len(group) - 1
+        total = per_player + ko_rounds
+
+        if total <= 4:
+            rating, color, icon = "轻松", "#27ae60", "🟢"
+        elif total <= 6:
+            rating, color, icon = "适中", "#2980b9", "🔵"
+        elif total <= 8:
+            rating, color, icon = "较累", "#e67e22", "🟠"
+        else:
+            rating, color, icon = "很累", "#e74c3c", "🔴"
+
+        results.append({
+            "小组": f"{gname}组", "人数": len(group),
+            "小组赛场次/人": per_player,
+            "淘汰赛轮数": ko_rounds,
+            "冠军总场次": total,
+            "体力评级": rating,
+            "_color": color,
+            "_icon": icon,
+        })
+    return results
 
 
 def next_power_of_two(n: int) -> int:
@@ -380,14 +449,19 @@ if st.session_state.get("_generated") and st.session_state._loaded_names:
         sizes = [len(g) for g in groups]
         st.info(f"共 {len(groups)} 组：各组人数 {', '.join(str(s) for s in sizes)}")
 
-    # Group matches
+    # Group matches (round-robin schedule, 1 match per player per round)
     group_match_rows = []
+    group_schedules: dict = {}
     for idx, group in enumerate(groups):
         gname = _get_group_name(idx)
-        for mi, (a, b) in enumerate(create_group_matches(group), start=1):
-            group_match_rows.append({
-                "小组": f"{gname}组", "场次": mi, "选手1": a, "选手2": b,
-            })
+        schedule = create_round_robin_schedule(group)
+        group_schedules[gname] = schedule
+        for rnd_idx, round_matches in enumerate(schedule, 1):
+            for mi, (a, b) in enumerate(round_matches, 1):
+                group_match_rows.append({
+                    "小组": f"{gname}组", "轮次": rnd_idx, "场次": mi,
+                    "选手1": a, "选手2": b,
+                })
 
     # Knockout matches
     knockout_matches = create_knockout_matches(groups, effective_seed)
@@ -407,10 +481,39 @@ if st.session_state.get("_generated") and st.session_state._loaded_names:
                 unsafe_allow_html=True,
             )
 
+    # ── Stamina analysis ──
+    st.subheader("体力分析")
+    stamina_data = analyze_stamina(groups, knockout_matches)
+    scols = st.columns(len(stamina_data))
+    for i, s in enumerate(stamina_data):
+        with scols[i]:
+            st.markdown(
+                f"<div style='text-align:center;padding:12px;border-radius:12px;"
+                f"background:{s['_color']}15;border:1px solid {s['_color']}40;'>"
+                f"<div style='font-size:13px;color:#666;'>{s['小组']}</div>"
+                f"<div style='font-size:28px;font-weight:bold;color:{s['_color']};'>{s['_icon']} {s['体力评级']}</div>"
+                f"<div style='font-size:13px;color:#555;margin-top:4px;'>"
+                f"{s['人数']}人 · 小组{s['小组赛场次/人']}场/人 · 淘汰赛{s['淘汰赛轮数']}轮"
+                f"<br>冠军最多 <strong>{s['冠军总场次']}场</strong></div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    # ── Group match schedule (round-by-round) ──
+    st.subheader("小组赛赛程（轮次制）")
+    st.caption("每轮每位选手只打一场，确保轮间有休息")
+    for idx, group in enumerate(groups):
+        gname = _get_group_name(idx)
+        schedule = group_schedules[gname]
+        with st.expander(f"{gname}组 — 共{len(schedule)}轮"):
+            for rnd_idx, round_matches in enumerate(schedule, 1):
+                matches_str = "　｜　".join(f"{a} vs {b}" for a, b in round_matches)
+                st.markdown(f"**第{rnd_idx}轮**　{matches_str}")
+
     # ── Group match table ──
-    st.subheader("小组赛对战表")
-    height = min(400, 35 * len(group_match_rows) + 38) if group_match_rows else 200
-    st.dataframe(group_match_rows, use_container_width=True, height=height)
+    with st.expander("查看完整小组赛表格"):
+        height = min(400, 35 * len(group_match_rows) + 38) if group_match_rows else 200
+        st.dataframe(group_match_rows, use_container_width=True, height=height)
 
     # ── Knockout bracket ──
     st.subheader("淘汰赛对阵图")
