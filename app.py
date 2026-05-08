@@ -87,10 +87,48 @@ document.addEventListener('click', function(e) {
   var scoreEl = hb.querySelector('.sb-score');
   if (!scoreEl) return;
 
+  // Update score instantly
   var isPlus = text === '+';
   var val = parseInt(scoreEl.textContent, 10) || 0;
   val = Math.max(0, Math.min(99, val + (isPlus ? 1 : -1)));
   scoreEl.textContent = val;
+
+  // ── Sync status text & winner highlight ──
+  var statusEl = card.querySelector('.sb-status');
+  if (!statusEl) return;
+  var players = card.querySelectorAll('.sb-player');
+  var scores = card.querySelectorAll('.sb-score');
+  if (players.length < 2 || scores.length < 2) return;
+
+  var v1 = parseInt(scores[0].textContent, 10) || 0;
+  var v2 = parseInt(scores[1].textContent, 10) || 0;
+  var name1 = players[0].textContent;
+  var name2 = players[1].textContent;
+
+  // Reset winner highlight on both
+  [players[0], players[1], scores[0], scores[1]].forEach(function(el) {
+    el.classList.remove('win');
+  });
+
+  if (v1 >= 21 && v1 - v2 >= 2) {
+    statusEl.innerHTML = '\\uD83C\\uDFC6 ' + name1 + ' \\u80dc';
+    statusEl.style.color = '#4ade80';
+    players[0].classList.add('win');
+    scores[0].classList.add('win');
+  } else if (v2 >= 21 && v2 - v1 >= 2) {
+    statusEl.innerHTML = '\\uD83C\\uDFC6 ' + name2 + ' \\u80dc';
+    statusEl.style.color = '#4ade80';
+    players[1].classList.add('win');
+    scores[1].classList.add('win');
+  } else {
+    var diff = v1 - v2;
+    var txt;
+    if (diff > 0) txt = name1 + ' \\u9886\\u5148 ' + diff + ' \\u5206';
+    else if (diff < 0) txt = name2 + ' \\u9886\\u5148 ' + (-diff) + ' \\u5206';
+    else txt = '\\u5e73\\u5206';
+    statusEl.innerHTML = '\\u26A1 ' + txt;
+    statusEl.style.color = '#90CAF9';
+  }
 });
 </script>
 """, unsafe_allow_html=True)
