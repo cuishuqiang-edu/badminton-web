@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import random
+import math
 import requests
 from io import BytesIO
 from typing import List, Optional, Tuple
@@ -112,6 +113,36 @@ def get_round_name(size: int) -> str:
         2: "决赛", 4: "半决赛", 8: "1/4决赛",
         16: "1/8决赛", 32: "1/16决赛", 64: "1/32决赛",
     }.get(size, f"{size}强赛")
+
+
+def distribute_evenly(items: List[str], target_size: int) -> List[List[str]]:
+    """Distribute items into groups as evenly as possible.
+
+    Each group gets at most `target_size` items, and no group has fewer than 2.
+    """
+    n = len(items)
+    if n <= target_size:
+        return [items]
+
+    num_groups = math.ceil(n / target_size)
+
+    # Reduce group count if the smallest group would be 1 person
+    while num_groups > 1:
+        base = n // num_groups
+        rem = n % num_groups
+        sizes = [base + 1] * rem + [base] * (num_groups - rem)
+        if min(sizes) >= 2:
+            break
+        num_groups -= 1
+
+    # Build evenly-sized groups
+    sizes = [n // num_groups + (1 if i < n % num_groups else 0) for i in range(num_groups)]
+    groups: List[List[str]] = []
+    start = 0
+    for s in sizes:
+        groups.append(items[start:start + s])
+        start += s
+    return groups
 
 
 def create_knockout_matches(groups: List[List[str]], seed: int) -> List[dict]:
@@ -293,7 +324,8 @@ with st.sidebar:
         text_names = st.text_area("输入姓名（每行一个）", height=200,
                                   placeholder="张三\n李四\n王五\n赵六")
 
-    group_size = st.number_input("每组人数", min_value=2, max_value=10, value=4)
+    group_size = st.number_input("目标每组人数", min_value=2, max_value=10, value=4,
+                                 help="系统会根据总人数尽量平均分配")
     user_seed = st.number_input("随机种子（0=完全随机）", min_value=0, max_value=999999,
                                 value=0, help="设一个数字种子可复现相同结果")
 
@@ -341,13 +373,12 @@ if st.session_state.get("_generated") and st.session_state._loaded_names:
     shuffled = list(names)  # copy, don't mutate session state
     rng.shuffle(shuffled)
 
-    # Split groups
-    groups = [shuffled[i:i + group_size] for i in range(0, len(shuffled), group_size)]
+    # Split groups (as evenly as possible)
+    groups = distribute_evenly(shuffled, group_size)
 
     if len(groups) > 1:
         sizes = [len(g) for g in groups]
-        if max(sizes) != min(sizes):
-            st.info(f"各组人数：{', '.join(str(s) for s in sizes)}（末组少人属正常）")
+        st.info(f"共 {len(groups)} 组：各组人数 {', '.join(str(s) for s in sizes)}")
 
     # Group matches
     group_match_rows = []
